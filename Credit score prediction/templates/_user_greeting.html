@@ -1,0 +1,10 @@
+{% if current_user %}
+<section class="user-greeting-card text-start mb-4" aria-labelledby="userGreetingTitle">
+  <div class="greeting-icon" aria-hidden="true"><i class="fa-solid fa-chart-line"></i></div>
+  <div>
+    <h2 id="userGreetingTitle" class="greeting-title">Welcome, {{ current_user.full_name.split()[0] }} <span aria-hidden="true">👋</span></h2>
+    <div class="greeting-kicker">Smart Credit Assessment Platform</div>
+    <p class="greeting-copy mb-0">Analyze your financial documents securely and generate AI-powered credit reports instantly.</p>
+  </div>
+</section>
+{% endif %}
