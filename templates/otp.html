@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<!--
+  templates/otp_request.html
+  Place this file in your Flask `templates/` folder.
+  Extends your existing base/layout if you have one — standalone otherwise.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request OTP — FinScore AI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(15,23,42,.12);
+      max-width: 480px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .card-header {
+      background: #0f172a;
+      padding: 28px 36px;
+      text-align: center;
+    }
+    .card-header h1 { color: #fff; font-size: 20px; letter-spacing: .5px; }
+    .card-header p  { color: #94a3b8; font-size: 13px; margin-top: 4px; }
+    .card-body { padding: 32px 36px; }
+    .icon-wrap {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .icon-wrap span {
+      font-size: 52px;
+      display: inline-block;
+    }
+    h2 { font-size: 18px; color: #0f172a; text-align: center; margin-bottom: 8px; }
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .email-badge {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 600;
+      color: #1d4ed8;
+      margin-bottom: 24px;
+      letter-spacing: .5px;
+    }
+    .info-list {
+      list-style: none;
+      margin-bottom: 28px;
+    }
+    .info-list li {
+      font-size: 13px;
+      color: #475569;
+      padding: 5px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .info-list li::before {
+      content: "ℹ";
+      color: #3b82f6;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .btn-send {
+      display: block;
+      width: 100%;
+      background: #1d4ed8;
+      color: #fff;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: .4px;
+      transition: background .2s;
+    }
+    .btn-send:hover { background: #1e40af; }
+    .btn-send:disabled { background: #93c5fd; cursor: not-allowed; }
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 18px;
+      font-size: 13px;
+      color: #64748b;
+      text-decoration: none;
+    }
+    .back-link:hover { color: #1d4ed8; }
+    .report-badge {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #64748b;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    /* Flash messages */
+    .flashes { list-style: none; margin-bottom: 20px; }
+    .flashes li {
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .flashes .success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .flashes .warning { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; }
+    .flashes .danger  { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .flashes .info    { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="card-header">
+    <h1>🔐 FinScore AI</h1>
+    <p>Secure Report Download</p>
+  </div>
+  <div class="card-body">
+
+    <!-- Flash messages from Flask -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <div class="icon-wrap"><span>📧</span></div>
+    <h2>Verify Your Identity</h2>
+    <p class="subtitle">
+      To download your credit report securely, we'll send a
+      <strong>one-time password (OTP)</strong> to your registered email address.
+    </p>
+
+    <div class="report-badge">
+      Report ID: <strong>{{ report_id }}</strong>
+    </div>
+
+    <div class="email-badge">{{ masked_email }}</div>
+
+    <ul class="info-list">
+      <li>The OTP will expire in <strong>60 seconds</strong> after it is sent.</li>
+      <li>You have a maximum of <strong>3 attempts</strong> to enter the correct OTP.</li>
+      <li>You can request up to <strong>3 OTPs per hour</strong> for this report.</li>
+      <li>Never share your OTP with anyone.</li>
+    </ul>
+
+    <!-- POST to /report/<report_id>/request-otp -->
+    <form method="POST" action="{{ url_for('request_otp', report_id=report_id) }}"
+          id="otpRequestForm">
+
+      <button type="submit" class="btn-send" id="sendBtn">
+        📨 Send OTP to My Email
+      </button>
+    </form>
+
+    {% if rate_limited %}
+    <p style="text-align:center;color:#dc2626;font-size:13px;margin-top:12px">⚠ Too many OTP requests. Please wait an hour.</p>
+    {% endif %}
+    <a href="{{ url_for('dashboard') }}" class="back-link">← Back to Dashboard</a>
+  </div>
+</div>
+
+<script>
+  // Disable button after first click to prevent double-submit
+  document.getElementById("otpRequestForm").addEventListener("submit", function() {
+    const btn = document.getElementById("sendBtn");
+    btn.disabled = true;
+    btn.textContent = "Sending OTP…";
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+# ── Git ─────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Environment ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python cache ────────────────────────────────────────────────
+__pycache__
+*.pyc
+*.pyo
+
+# ── Virtual environments ─────────────────────────────────────────
+.venv*
+venv/
+env/
+
+# ── Database (created at runtime) ───────────────────────────────
+*.db
+*.db-journal*
+instance/
+
+# ── Runtime folders (mounted disk / tmp at runtime) ─────────────
+uploads/
+reports/
+
+# ── Training data (model already built) ─────────────────────────
+dataset.xlsx
+train_model.py
+
+# ── Tests ────────────────────────────────────────────────────────
+tests/
+
+# ── Temp / patch scripts ─────────────────────────────────────────
+patch_*.py
+
+# ── IDE & OS ─────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/

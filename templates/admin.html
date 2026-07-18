@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin Panel — FinScore AI</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}"/>
+</head>
+<body>
+
+<div class="bg-canvas"></div>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg glass-nav fixed-top">
+  <div class="container-fluid px-4">
+    <a class="navbar-brand brand-logo" href="/">
+      <i class="fa-solid fa-landmark me-2"></i>FinScore<span class="brand-ai">AI</span>
+    </a>
+    <div class="ms-auto d-flex align-items-center gap-3">
+      <span class="admin-badge"><i class="fa-solid fa-shield-halved me-1"></i>Admin Panel</span>
+      <button class="btn btn-sm theme-toggle" id="themeToggle"><i class="fa-solid fa-moon"></i></button>
+      <a href="/admin/logout" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-right-from-bracket me-1"></i>Logout
+      </a>
+      <a href="/" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-house me-1"></i>Home
+      </a>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 admin-wrap pt-5 mt-4">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} py-2 mb-3">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Page header -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 gap-3">
+    <div>
+      <div class="section-label">DATABASE OVERVIEW</div>
+      <h2 class="page-title mb-0">Credit Records</h2>
+      <small class="text-muted">All uploaded statements and generated reports</small>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/admin/export" class="btn btn-sm btn-glow">
+        <i class="fa-solid fa-file-csv me-1"></i>Export CSV
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI Stats -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#60a5fa"><i class="fa-solid fa-users"></i></div>
+        <div class="stat-val">{{ total }}</div>
+        <div class="stat-lbl">Total Records</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#22c55e"><i class="fa-solid fa-circle-check"></i></div>
+        <div class="stat-val">{{ approved }}</div>
+        <div class="stat-lbl">Loans Approved</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#fbbf24"><i class="fa-solid fa-star-half-stroke"></i></div>
+        <div class="stat-val">{{ avg_score }}</div>
+        <div class="stat-lbl">Avg Credit Score</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#a78bfa"><i class="fa-solid fa-file-arrow-up"></i></div>
+        <div class="stat-val">{{ pdf_count }} / {{ csv_count }}</div>
+        <div class="stat-lbl">PDF / CSV uploads</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#22c55e"><i class="fa-solid fa-shield-check"></i></div>
+        <div class="stat-val">{{ val_pass }}</div>
+        <div class="stat-lbl">Docs Validated</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="glass-card stat-card text-center">
+        <div class="stat-icon" style="color:#f87171"><i class="fa-solid fa-shield-exclamation"></i></div>
+        <div class="stat-val">{{ val_fail }}</div>
+        <div class="stat-lbl">Docs Rejected</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search + Filter bar -->
+  <div class="glass-card mb-3 py-3 px-4">
+    <div class="row g-2 align-items-center">
+      <div class="col-12 col-md-5">
+        <div class="search-wrap">
+          <i class="fa-solid fa-magnifying-glass search-icon"></i>
+          <input type="text" id="searchInput" class="form-control fin-input ps-5"
+                 placeholder="Search by name, email, phone, report ID…"/>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <select id="filterLoan" class="form-select fin-input">
+          <option value="">All Loan Status</option>
+          <option value="Approved">Approved</option>
+          <option value="Conditionally Approved">Conditionally Approved</option>
+          <option value="Not Approved">Not Approved</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <select id="filterStatus" class="form-select fin-input">
+          <option value="">All Score Status</option>
+          <option value="Excellent">Excellent</option>
+          <option value="Good">Good</option>
+          <option value="Fair">Fair</option>
+          <option value="Average">Average</option>
+          <option value="Poor">Poor</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 text-end">
+        <span class="text-muted small" id="rowCount">{{ total }} records</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Records Table -->
+  <div class="glass-card p-0 overflow-hidden mb-5">
+    {% if records %}
+    <div class="table-responsive">
+      <table class="table table-admin mb-0" id="recordsTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Report ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Score</th>
+            <th>Status</th>
+            <th>Loan</th>
+            <th>Confidence</th>
+            <th>Income</th>
+            <th>Expense</th>
+            <th>Savings</th>
+            <th>File</th>
+            <th>Date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          {% for r in records %}
+          <tr data-id="{{ r.id }}"
+              data-name="{{ r.name | lower }}"
+              data-email="{{ r.email | lower }}"
+              data-phone="{{ r.phone }}"
+              data-report="{{ r.report_id | lower }}"
+              data-loan="{{ r.loan_rec }}"
+              data-status="{{ r.status }}">
+            <td class="text-muted">{{ loop.index }}</td>
+            <td><span class="report-id-badge">{{ r.report_id }}</span></td>
+            <td class="fw-600">{{ r.name }}</td>
+            <td class="text-muted small">{{ r.email }}</td>
+            <td class="text-muted small">{{ r.phone }}</td>
+            <td>
+              <span class="score-badge score-{{ r.status | lower }}">{{ r.credit_score }}</span>
+            </td>
+            <td><span class="status-pill status-{{ r.status | lower }}">{{ r.status }}</span></td>
+            <td><span class="loan-pill loan-{{ r.loan_rec | replace(' ', '-') | lower }}">{{ r.loan_rec }}</span></td>
+            <td>
+              <div class="conf-bar-wrap">
+                <div class="conf-bar" style="width:{{ r.confidence }}%"></div>
+              </div>
+              <small class="text-muted">{{ r.confidence }}%</small>
+            </td>
+            <td class="text-success">₹{{ "{:,.0f}".format(r.monthly_income) }}</td>
+            <td class="text-danger">₹{{ "{:,.0f}".format(r.monthly_expense) }}</td>
+            <td>₹{{ "{:,.0f}".format(r.net_savings) }}</td>
+            <td>
+              <span class="file-badge file-{{ r.file_type | lower }}">
+                <i class="fa-solid fa-file-{{ 'pdf' if r.file_type == 'PDF' else 'csv' }} me-1"></i>{{ r.file_type }}
+              </span>
+            </td>
+            <td class="text-muted small">{{ r.created_at.strftime('%d %b %Y, %H:%M') }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <a href="/report/{{ r.report_id }}" class="btn btn-xs btn-download" title="Download PDF">
+                  <i class="fa-solid fa-file-arrow-down"></i>
+                </a>
+                <button class="btn btn-xs btn-del" title="Delete Record"
+                        onclick="deleteRecord({{ r.id }}, this)">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state text-center py-5">
+      <i class="fa-solid fa-database fa-3x mb-3 text-muted"></i>
+      <h5 class="text-muted">No records yet</h5>
+      <p class="text-muted small">Upload a bank statement from the home page to get started.</p>
+      <a href="/" class="btn btn-glow mt-2">Go to Home</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── VALIDATION AUDIT LOG ── -->
+  <div class="d-flex align-items-center justify-content-between mb-3 mt-2">
+    <div>
+      <div class="section-label">SECURITY LAYER</div>
+      <h4 class="page-title mb-0" style="font-size:1.2rem">Document Validation Audit Log</h4>
+    </div>
+    <span class="text-muted small">Every upload attempt is logged</span>
+  </div>
+
+  <div class="glass-card p-0 overflow-hidden mb-5">
+    {% if val_logs %}
+    <div class="table-responsive">
+      <table class="table table-admin mb-0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File Name</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Score</th>
+            <th>Bank Detected</th>
+            <th>Transactions</th>
+            <th>Uploader</th>
+            <th>Rejection Reason</th>
+            <th>Date</th>
+            <th>Del</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in val_logs %}
+          <tr>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td class="small fw-600" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ v.file_name }}">{{ v.file_name }}</td>
+            <td><span class="file-badge file-{{ v.file_type | lower }}">{{ v.file_type }}</span></td>
+            <td>
+              {% if v.validation_status == 'PASS' %}
+              <span class="vlog-pass"><i class="fa-solid fa-shield-check me-1"></i>PASS</span>
+              {% else %}
+              <span class="vlog-fail"><i class="fa-solid fa-shield-exclamation me-1"></i>FAIL</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="conf-bar-wrap">
+                <div class="conf-bar {{ 'conf-bar-fail' if v.validation_score < 70 else '' }}"
+                     style="width:{{ v.validation_score }}%"></div>
+              </div>
+              <small class="{{ 'text-danger' if v.validation_score < 70 else 'text-success' }}">{{ v.validation_score }}/100</small>
+            </td>
+            <td class="small">{{ v.bank_detected or '—' }}</td>
+            <td class="text-center">{{ v.txn_count }}</td>
+            <td class="small text-muted">{{ v.uploader_name or '—' }}<br><span style="font-size:0.7rem">{{ v.uploader_email or '' }}</span></td>
+            <td class="small text-muted" style="max-width:200px;white-space:normal">{{ v.reject_reason or '—' }}</td>
+            <td class="text-muted small">{{ v.created_at.strftime('%d %b %Y, %H:%M') }}</td>
+            <td>
+              <button class="btn btn-xs btn-del" title="Delete Log"
+                      onclick="deleteLog({{ v.id }}, this)">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state text-center py-4">
+      <i class="fa-solid fa-shield fa-2x mb-2 text-muted"></i>
+      <p class="text-muted small mb-0">No validation logs yet. Upload attempts will appear here.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content glass-card border-0 p-0">
+      <div class="modal-body p-4 text-center">
+        <i class="fa-solid fa-triangle-exclamation fa-2x text-warning mb-3"></i>
+        <h5 class="text-primary mb-2">Delete this record?</h5>
+        <p class="text-muted small">This will permanently remove the record and its PDF report.</p>
+        <div class="d-flex gap-2 justify-content-center mt-3">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-danger" id="confirmDelete">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="footer text-center py-3">
+  <small class="text-muted">© 2024 FinScore AI &nbsp;·&nbsp; Admin Panel</small>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

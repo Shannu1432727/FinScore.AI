@@ -1,0 +1,49 @@
+# ── Environment ────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ────────────────────────────────────────
+.venv*/
+venv/
+env/
+
+# ── Database ────────────────────────────────────────────────────
+*.db
+*.db-journal*
+instance/
+
+# ── Runtime folders ─────────────────────────────────────────────
+uploads/
+reports/*.pdf
+reports/*.csv
+
+# ── Temp / patch scripts ────────────────────────────────────────
+patch_*.py
+
+# ── IDE & OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ── Test artifacts ──────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Training data (not needed for deployment) ──────────────────
+dataset.xlsx
+train_model.py
+
+# ── Build artifacts ─────────────────────────────────────────────
+.dist/
+.agents/
