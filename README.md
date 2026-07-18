@@ -1,3 +1,4 @@
+
 # FinScore AI with Google Sign-In
 
 This Flask app now supports Google Sign-In via OAuth 2.0 and Google Identity Services.

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Credit Dashboard — FinScore AI</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}"/>
+</head>
+<body>
+
+{% include '_flash_toasts.html' %}
+
+<div class="bg-canvas" id="bgCanvas"></div>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg glass-nav fixed-top">
+  <div class="container">
+    <a class="navbar-brand brand-logo" href="/"><i class="fa-solid fa-landmark me-2"></i>FinScore<span class="brand-ai">AI</span></a>
+    <div class="ms-auto d-flex align-items-center gap-3">
+      <span class="badge-customer"><i class="fa-solid fa-user-circle me-1"></i>{{ result.name }}</span>
+      <button class="btn btn-sm theme-toggle" id="themeToggle"><i class="fa-solid fa-moon"></i></button>
+      {% if current_user %}
+      <span class="badge-customer"><img src="{{ current_user.profile_picture or url_for('static', filename='images/default-avatar.svg') }}" alt="avatar" class="rounded-circle me-2" style="width:24px;height:24px;object-fit:cover;" onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}'" />{{ current_user.full_name }}</span>
+      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-right-from-bracket me-1"></i>Logout
+      </a>
+      {% else %}
+      <a href="/login" class="btn btn-sm btn-outline-light">
+        <i class="fa-brands fa-google me-1"></i>Sign in with Google
+      </a>
+      {% endif %}
+      {% if session.get('admin_authenticated') %}
+      <a href="/admin" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-database me-1"></i>Admin
+      </a>
+      {% else %}
+      <a href="/admin/login" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-database me-1"></i>Admin Login
+      </a>
+      {% endif %}
+      <a href="/" class="btn btn-sm btn-outline-light">
+        <i class="fa-solid fa-plus me-1"></i>New Analysis
+      </a>
+    </div>
+  </div>
+</nav>
+
+<div class="container dashboard-wrap pt-5 mt-4">
+
+  {% include '_user_greeting.html' %}
+
+  <!-- Page header -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 gap-3">
+    <div>
+      <div class="section-label">CREDIT REPORT</div>
+      <h2 class="page-title mb-0">{{ result.name }}'s Financial Analysis</h2>
+      <small class="text-muted">Report ID: {{ result.report_id }} &nbsp;·&nbsp; {{ result.email }}</small>
+    </div>
+    <a href="/report/{{ result.report_id }}/request-otp" class="btn btn-glow">
+      <i class="fa-solid fa-file-arrow-down me-2"></i>Download PDF Report
+    </a>
+  </div>
+
+  <!-- Top KPI cards -->
+  <div class="row g-3 mb-4">
+    <!-- Score card -->
+    <div class="col-12 col-md-4">
+      <div class="glass-card h-100 text-center score-card">
+        <div class="score-label">Credit Score</div>
+        <div class="score-ring-wrap">
+          <canvas id="gaugeChart" width="200" height="120"></canvas>
+          <div class="score-display">
+            <span class="score-num" id="scoreNum">0</span>
+            <span class="score-max">/900</span>
+          </div>
+        </div>
+        <div class="score-status status-{{ result.status | lower }}">{{ result.status }}</div>
+      </div>
+    </div>
+    <!-- Loan recommendation -->
+    <div class="col-12 col-md-4">
+      <div class="glass-card h-100 d-flex flex-column justify-content-between loan-card">
+        <div class="kpi-icon loan-icon-{{ result.loan_color }}">
+          {% if result.loan_color == 'green' %}<i class="fa-solid fa-circle-check"></i>
+          {% elif result.loan_color == 'orange' %}<i class="fa-solid fa-circle-exclamation"></i>
+          {% else %}<i class="fa-solid fa-circle-xmark"></i>{% endif %}
+        </div>
+        <div>
+          <div class="kpi-label">Loan Recommendation</div>
+          <div class="kpi-value loan-{{ result.loan_color }}">{{ result.loan_rec }}</div>
+          <div class="kpi-sub">{{ result.creditworthy }}</div>
+        </div>
+        <div class="confidence-bar-wrap">
+          <div class="d-flex justify-content-between mb-1">
+            <small>Confidence</small><small><strong>{{ result.confidence }}%</strong></small>
+          </div>
+          <div class="progress" style="height:8px">
+            <div class="progress-bar bg-gradient-blue" style="width:{{ result.confidence }}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Quick stats -->
+    <div class="col-12 col-md-4">
+      <div class="row g-3 h-100">
+        <div class="col-6">
+          <div class="glass-card mini-kpi">
+            <i class="fa-solid fa-arrow-down-to-line text-success mb-2"></i>
+            <div class="mini-val">₹{{ "{:,.0f}".format(result.features.monthly_income) }}</div>
+            <div class="mini-lbl">Income</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="glass-card mini-kpi">
+            <i class="fa-solid fa-arrow-up-from-line text-danger mb-2"></i>
+            <div class="mini-val">₹{{ "{:,.0f}".format(result.features.monthly_expense) }}</div>
+            <div class="mini-lbl">Expenses</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="glass-card mini-kpi">
+            <i class="fa-solid fa-piggy-bank text-warning mb-2"></i>
+            <div class="mini-val">₹{{ "{:,.0f}".format(result.features.net_savings) }}</div>
+            <div class="mini-lbl">Savings</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="glass-card mini-kpi">
+            <i class="fa-solid fa-scale-balanced" style="color:#a78bfa" mb-2></i>
+            <div class="mini-val">{{ result.features.debit_credit_ratio }}</div>
+            <div class="mini-lbl">Debit/Credit</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-5">
+      <div class="glass-card">
+        <div class="chart-title"><i class="fa-solid fa-chart-pie me-2"></i>Expense Breakdown</div>
+        <canvas id="expensePie" height="220"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-md-7">
+      <div class="glass-card">
+        <div class="chart-title"><i class="fa-solid fa-chart-bar me-2"></i>Financial Overview</div>
+        <canvas id="finBar" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Savings trend + credit factors -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-6">
+      <div class="glass-card">
+        <div class="chart-title"><i class="fa-solid fa-chart-line me-2"></i>Savings Rate Trend</div>
+        <canvas id="savingsLine" height="200"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="glass-card">
+        <div class="chart-title"><i class="fa-solid fa-sliders me-2"></i>Credit Factor Radar</div>
+        <canvas id="radarChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Financial detail table + AI tips -->
+  <div class="row g-3 mb-5">
+    <div class="col-12 col-md-6">
+      <div class="glass-card">
+        <div class="chart-title mb-3"><i class="fa-solid fa-table-list me-2"></i>Detailed Financial Summary</div>
+        <table class="table table-fin">
+          <tbody>
+            {% set f = result.features %}
+            <tr><td>Monthly Income</td><td class="text-success fw-bold">₹{{ "{:,.0f}".format(f.monthly_income) }}</td></tr>
+            <tr><td>Monthly Expense</td><td class="text-danger fw-bold">₹{{ "{:,.0f}".format(f.monthly_expense) }}</td></tr>
+            <tr><td>Net Savings</td><td class="fw-bold">₹{{ "{:,.0f}".format(f.net_savings) }}</td></tr>
+            <tr><td>Savings Rate</td><td>{{ (f.savings_rate * 100) | round(1) }}%</td></tr>
+            <tr><td>Salary Credits</td><td>{{ f.salary_frequency }}</td></tr>
+            <tr><td>Debit/Credit Ratio</td><td>{{ f.debit_credit_ratio }}</td></tr>
+            <tr><td>Cash Withdrawal %</td><td>{{ (f.cash_withdrawal_ratio * 100) | round(1) }}%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="glass-card h-100">
+        <div class="chart-title mb-3"><i class="fa-solid fa-lightbulb me-2 text-warning"></i>AI Recommendations</div>
+        {% for tip in result.tips %}
+        <div class="tip-item">
+          <i class="fa-solid fa-circle-arrow-right me-2 text-info"></i>{{ tip }}
+        </div>
+        {% endfor %}
+        <div class="mt-4 disclaimer">
+          <i class="fa-solid fa-info-circle me-1"></i>
+          This report is AI-generated for informational purposes only. Consult a financial advisor for formal assessment.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer class="footer text-center py-3">
+  <small class="text-muted">© 2024 FinScore AI &nbsp;·&nbsp; Report {{ result.report_id }}</small>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+  const R = {{ result | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
