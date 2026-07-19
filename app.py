@@ -523,7 +523,7 @@ def check_pdf_access(path, password=None):
                 "Please enter the PDF password to continue."
             )
         return "invalid_password", "Invalid PDF password. Please try again."
-    except PdfminerException as exc:
+    except Exception as exc:
         # pdfplumber wraps PDFPasswordIncorrect as the first argument rather
         # than preserving it as __cause__ in current releases.
         wrapped = exc.args[0] if exc.args else None
