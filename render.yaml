@@ -10,13 +10,9 @@ services:
         fromDatabase:
           name: finscore-db
           property: connectionString
+      - key: REQUIRE_PERSISTENT_DATABASE
+        value: "true"
       - key: APP_BASE_URL
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
-      - key: GOOGLE_CLIENT_SECRET
-        sync: false
-      - key: GOOGLE_REDIRECT_URI
         sync: false
       - key: MAIL_SERVER
         value: smtp.gmail.com

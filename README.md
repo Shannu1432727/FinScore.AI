@@ -1,46 +1,22 @@
+# FinScore AI
 
-# FinScore AI with Google Sign-In
+FinScore AI is a Flask credit-scoring application with secure email-based sign-in.
 
-This Flask app now supports Google Sign-In via OAuth 2.0 and Google Identity Services.
+## Authentication
 
-## Features
-- "Sign in with Google" button on the homepage and dashboard
-- OAuth redirect to Google login
-- User profile data stored in SQLite via SQLAlchemy
-- Automatic account creation for new users and login for existing users
-- Flask session-based authentication
-- Logout button
+Users sign in by entering an email address and verifying a six-digit, SHA-256-hashed one-time code. Codes expire in 60 seconds, may be resent after the expiry window, are limited to three requests per email per hour, and are locked after five failed verification attempts. A verified email automatically creates a new user account; existing users simply verify a new code.
+
+Admin sign-in, admin OTP, password reset, report-download OTP, dashboard, reporting, statement validation, and prediction behavior are unchanged.
 
 ## Setup
-1. Install dependencies:
-   pip install -r requirements.txt
-2. Copy the sample environment file:
-   copy .env.example .env
-3. Fill in your Google OAuth credentials:
-   - GOOGLE_CLIENT_ID
-   - GOOGLE_CLIENT_SECRET
-   - GOOGLE_REDIRECT_URI
-4. Run the app:
-   python app.py
 
-## Google OAuth configuration
-1. Create a project in Google Cloud Console.
-2. Enable the Google Identity Services OAuth consent screen.
-3. Create OAuth credentials for a Web application.
-4. Add the authorized redirect URI:
-   http://localhost:5000/login/callback
-5. Copy the client ID and client secret into the environment variables.
+1. Install dependencies: `pip install -r requirements.txt`
+2. Copy `.env.example` to `.env`.
+3. Set a long `FLASK_SECRET_KEY` and configure the existing Resend/email settings.
+4. Run the app: `python app.py`
 
 ## Production deployment (Render)
 
-1. Copy `.env.example` to `.env` for local development. Never commit `.env`.
-2. Push the project to a private Git repository.
-3. In Render, create a Blueprint from this repository. `render.yaml` provisions the web service, PostgreSQL database, health check, and persistent report disk.
-4. Set every environment variable marked `sync: false` in the Render dashboard.
-5. Set `APP_BASE_URL` to the public HTTPS URL, for example `https://finscore-ai.onrender.com`.
-6. Set `GOOGLE_REDIRECT_URI` to `<APP_BASE_URL>/login/callback` and add that exact URI to the Google Cloud OAuth client.
-7. Deploy, then open `/admin/setup` once to create the first administrator.
+`render.yaml` provisions the web service, PostgreSQL database, health check, and persistent report disk. Set every environment variable marked `sync: false` in Render, including the email provider credentials and `APP_BASE_URL`. Then deploy and open `/admin/setup` once to create the first administrator.
 
 The production container uses Gunicorn and includes Poppler and Tesseract for scanned-PDF processing. PostgreSQL stores application records and the mounted disk stores generated PDF reports.
-
-Before the first public deployment, rotate any credentials that were previously kept in an unignored `.env` file.

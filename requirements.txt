@@ -4,7 +4,6 @@ Flask-SQLAlchemy==3.0.5
 gunicorn==23.0.0
 psycopg[binary]==3.2.9
 python-dotenv==1.0.0
-requests==2.32.5
 resend==2.34.0
 
 # Credit-score model and training

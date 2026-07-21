@@ -4,17 +4,15 @@ from email.message import EmailMessage
 from html import escape
 from datetime import datetime, timedelta
 from functools import wraps
-from urllib.parse import urlencode
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
 from dotenv import load_dotenv
 import joblib
-import requests
 import numpy as np
 import pandas as pd
 import pdfplumber
-from pdfplumber.utils.exceptions import PdfminerException
+from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.pdfdocument import PDFPasswordIncorrect
 from pdfminer.pdfparser import PDFSyntaxError
 from werkzeug.utils import secure_filename
@@ -40,9 +38,6 @@ app.config["SESSION_COOKIE_SECURE"] = os.getenv("APP_BASE_URL", "").startswith("
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 3600
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("APP_BASE_URL", "").startswith("https://")
-app.config["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID", "")
-app.config["GOOGLE_CLIENT_SECRET"] = os.getenv("GOOGLE_CLIENT_SECRET", "")
-app.config["GOOGLE_REDIRECT_URI"] = os.getenv("GOOGLE_REDIRECT_URI", "")
 app.config["MAIL_SERVER"] = os.getenv("MAIL_SERVER", "")
 app.config["MAIL_PORT"] = int(os.getenv("MAIL_PORT", "587"))
 app.config["MAIL_USE_TLS"] = os.getenv("MAIL_USE_TLS", "true").lower() in {"1", "true", "yes", "on"}
@@ -56,8 +51,8 @@ app.config["ADMIN_EMAIL"] = os.getenv("ADMIN_EMAIL", app.config["MAIL_USERNAME"]
 def login_required(view_func):
     @wraps(view_func)
     def wrapped(*args, **kwargs):
-        if not session.get("user_id"):
-            flash("Please sign in with Google to continue.", "warning")
+        if not get_current_user():
+            flash("Please sign in with your email to continue.", "warning")
             return redirect(url_for("login"))
         return view_func(*args, **kwargs)
 
@@ -67,14 +62,18 @@ def login_required(view_func):
 
 # ---------------------------
 # â”€â”€ Database â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-database_url = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///" + os.path.join(BASE_DIR, "finscore.db"),
-)
+database_url = os.getenv("DATABASE_URL")
+require_persistent_database = os.getenv("REQUIRE_PERSISTENT_DATABASE", "false").lower() in {"1", "true", "yes", "on"}
+if not database_url:
+    if require_persistent_database:
+        raise RuntimeError("DATABASE_URL must be configured with PostgreSQL for this deployment.")
+    database_url = "sqlite:///" + os.path.join(BASE_DIR, "finscore.db")
 if database_url.startswith("postgres://"):
     database_url = "postgresql+psycopg://" + database_url[len("postgres://"):]
 elif database_url.startswith("postgresql://"):
     database_url = "postgresql+psycopg://" + database_url[len("postgresql://"):]
+if require_persistent_database and not database_url.startswith("postgresql+psycopg://"):
+    raise RuntimeError("A PostgreSQL DATABASE_URL is required for this deployment.")
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -156,16 +155,24 @@ class AdminPasswordResetOtp(db.Model):
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-class GoogleUser(db.Model):
-    __tablename__ = "google_users"
+class User(db.Model):
+    __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
-    google_user_id = db.Column(db.String(120), unique=True, nullable=False, index=True)
     full_name = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    profile_picture = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class UserLoginOtp(db.Model):
+    __tablename__ = "user_login_otps"
+    id = db.Column(db.Integer, primary_key=True)
+    user_email = db.Column(db.String(255), nullable=False, index=True)
+    otp_hash = db.Column(db.String(256), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    used = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
 
@@ -336,7 +343,7 @@ def send_welcome_email(user):
 
 
 def send_result_email(user_name, user_email, credit_score, credit_category, prediction_date):
-    """Send credit score result email to the logged-in Google user."""
+    """Send a credit score result email to the signed-in user."""
     safe_name = escape(user_name)
     score_color = (
         "#22c55e" if credit_category == "Excellent" else
@@ -396,14 +403,6 @@ def send_result_email(user_name, user_email, credit_score, credit_category, pred
     return _smtp_send(message)
 
 
-def get_google_redirect_uri():
-    configured_uri = app.config.get("GOOGLE_REDIRECT_URI", "").strip()
-    if configured_uri:
-        return configured_uri
-    base_url = os.getenv("APP_BASE_URL", "http://localhost:5000").rstrip("/")
-    return f"{base_url}/login/callback"
-
-
 def validate_personal_details(name, email, phone):
     """Return a user-friendly validation error, or None when all fields are valid."""
     if not name or not email or not phone:
@@ -427,18 +426,22 @@ def validate_personal_details(name, email, phone):
 
 
 def get_current_user():
-    if not session.get("user_id"):
+    if not session.get("user_id") or session.get("user_authentication_method") != "email_otp":
         return None
-    return GoogleUser.query.get(session["user_id"])
+    user = db.session.get(User, session["user_id"])
+    if not user:
+        clear_user_session()
+    return user
 
 
 def set_user_session(user):
+    clear_user_session()
     session.permanent = True
     session["user_id"] = user.id
     session["user_name"] = user.full_name
     session["user_email"] = user.email
-    session["user_picture"] = user.profile_picture or ""
-    session["user_google_id"] = user.google_user_id
+    session["user_authenticated_at"] = datetime.utcnow().isoformat()
+    session["user_authentication_method"] = "email_otp"
     session.modified = True
 
 
@@ -446,8 +449,8 @@ def clear_user_session():
     session.pop("user_id", None)
     session.pop("user_name", None)
     session.pop("user_email", None)
-    session.pop("user_picture", None)
-    session.pop("user_google_id", None)
+    session.pop("user_authenticated_at", None)
+    session.pop("user_authentication_method", None)
 
 
 # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -511,42 +514,42 @@ def check_pdf_access(path, password=None):
     """Validate PDF structure and credentials without extracting statement data."""
     try:
         with pdfplumber.open(path, password=password or "") as pdf:
-            # Accessing pages forces pdfminer to parse the document catalogue.
             page_count = len(pdf.pages)
             if page_count == 0:
                 return "invalid", "The uploaded PDF does not contain any pages."
+
         return "ok", None
+
     except PDFPasswordIncorrect:
         if password is None:
-            return "password_required", (
-                "This bank statement is password protected. "
-                "Please enter the PDF password to continue."
+            return (
+                "password_required",
+                "This bank statement is password protected. Please enter the PDF password to continue."
             )
         return "invalid_password", "Invalid PDF password. Please try again."
-    except PdfminerException as exc:
-        # pdfplumber wraps PDFPasswordIncorrect as the first argument rather
-        # than preserving it as __cause__ in current releases.
-        wrapped = exc.args[0] if exc.args else None
-        cause = exc.__cause__ or exc.__context__
-        message = " ".join(str(value) for value in exc.args).lower()
-        if (
-            isinstance(wrapped, PDFPasswordIncorrect)
-            or isinstance(cause, PDFPasswordIncorrect)
-            or "password" in message
-        ):
+
+    except (PDFSyntaxError, ValueError, TypeError):
+        return (
+            "invalid",
+            "The uploaded PDF is corrupted or uses an unsupported PDF format."
+        )
+
+    except Exception as exc:
+        message = str(exc).lower()
+
+        if "password" in message:
             if password is None:
-                return "password_required", (
-                    "This bank statement is password protected. "
-                    "Please enter the PDF password to continue."
+                return (
+                    "password_required",
+                    "This bank statement is password protected. Please enter the PDF password to continue."
                 )
             return "invalid_password", "Invalid PDF password. Please try again."
-        return "invalid", "The uploaded PDF is corrupted or uses an unsupported PDF format."
-    except (PDFSyntaxError, ValueError, TypeError):
-        return "invalid", "The uploaded PDF is corrupted or uses an unsupported PDF format."
-    except Exception:
-        app.logger.exception("PDF preflight failed for an uploaded document")
-        return "invalid", "The PDF could not be processed. Please upload a valid bank statement."
 
+        app.logger.exception("PDF preflight failed")
+        return (
+            "invalid",
+            "The PDF could not be processed. Please upload a valid bank statement."
+        )
 
 def parse_csv(path):
     df = pd.read_csv(path)
@@ -896,130 +899,108 @@ def generate_pdf_report(user, feats, pred, proba, score, tips, report_id):
 
 
 # â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-@app.route("/auth/google")
-def google_login():
+def _valid_login_email(email):
+    return bool(re.fullmatch(
+        r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+",
+        email,
+    )) and len(email) <= 254
+
+
+def _send_user_login_otp_email(user_email, otp_code):
+    msg = EmailMessage()
+    msg["Subject"] = "FinScore AI — Your sign-in code"
+    msg["To"] = user_email
+    msg.set_content(f"Your FinScore AI sign-in code is: {otp_code}\n\nIt expires in 60 seconds. Do not share this code with anyone.")
+    msg.add_alternative(f"""<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f1f5f9;margin:0;padding:32px">
+<div style="max-width:480px;margin:auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0">
+  <div style="background:#0f172a;padding:24px 32px;color:#fff"><h2 style="margin:0">FinScore <span style="color:#22c55e">AI</span></h2><p style="margin:4px 0 0;color:#94a3b8;font-size:13px">Secure email sign-in</p></div>
+  <div style="padding:32px"><p>Your one-time sign-in code is:</p><div style="text-align:center;margin:24px 0"><span style="font-size:42px;font-weight:800;letter-spacing:10px;color:#1d4ed8;font-family:monospace">{otp_code}</span></div><p style="color:#64748b;font-size:13px">This code expires in <strong>60 seconds</strong>. Never share it with anyone.</p></div>
+</div></body></html>""", subtype="html")
+    return _smtp_send(msg)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
     ensure_database()
-    client_id = app.config.get("GOOGLE_CLIENT_ID", "").strip()
-    client_secret = app.config.get("GOOGLE_CLIENT_SECRET", "").strip()
-    if not client_id or not client_secret:
-        flash("Google OAuth is not configured yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.", "danger")
+    if get_current_user():
         return redirect(url_for("home"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if not _valid_login_email(email):
+            flash("Enter a valid email address.", "danger")
+            return render_template("login.html", current_user=None)
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        recent_count = UserLoginOtp.query.filter(UserLoginOtp.user_email == email, UserLoginOtp.created_at >= one_hour_ago).count()
+        latest_otp = UserLoginOtp.query.filter_by(user_email=email).order_by(UserLoginOtp.created_at.desc()).first()
+        if recent_count >= 3:
+            flash("Too many sign-in codes requested. Please wait an hour and try again.", "danger")
+            return render_template("login.html", current_user=None)
+        if latest_otp and (datetime.utcnow() - latest_otp.created_at).total_seconds() < 60:
+            flash("Please wait 60 seconds before requesting another code.", "warning")
+            return render_template("login.html", current_user=None)
+        otp_code = str(secrets.randbelow(900000) + 100000)
+        otp_record = UserLoginOtp(user_email=email, otp_hash=hashlib.sha256(otp_code.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(seconds=60))
+        db.session.add(otp_record)
+        if not safe_commit("user login otp"):
+            flash("We could not create a sign-in code. Please try again.", "danger")
+            return render_template("login.html", current_user=None)
+        if not _send_user_login_otp_email(email, otp_code):
+            db.session.delete(otp_record)
+            safe_commit("undelivered user login otp")
+            flash("We could not send a sign-in code. Please try again.", "danger")
+            return render_template("login.html", current_user=None)
+        session["pending_login_email"] = email
+        session.modified = True
+        flash(f"A sign-in code was sent to {_mask_email(email)}.", "success")
+        return redirect(url_for("verify_login_otp"))
+    return render_template("login.html", current_user=None)
 
-    params = {
-        "client_id": client_id,
-        "redirect_uri": get_google_redirect_uri(),
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "online",
-        "prompt": "select_account",
-        "state": secrets.token_urlsafe(32),
-    }
-    session["google_oauth_state"] = params["state"]
-    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
-    return redirect(auth_url)
 
-
-@app.route("/auth/google/callback")  # Backward-compatible alias for old bookmarks/configuration.
-@app.route("/login/callback")
-def google_callback():
+@app.route("/login/verify", methods=["GET", "POST"])
+def verify_login_otp():
     ensure_database()
-
-    # Check for OAuth errors FIRST (user may deny access — Google can omit state)
-    error = request.args.get("error")
-    if error:
-        app.logger.info("Google OAuth error: %s", error)
-        flash("Google sign-in was cancelled or denied.", "warning")
+    email = session.get("pending_login_email")
+    if not email:
+        flash("Enter your email to request a sign-in code.", "warning")
         return redirect(url_for("login"))
-
-    # CSRF state validation
-    expected_state = session.pop("google_oauth_state", None)
-    received_state = request.args.get("state")
-    app.logger.debug("OAuth state — expected present: %s, received present: %s",
-                     bool(expected_state), bool(received_state))
-    if not expected_state or not received_state or not secrets.compare_digest(expected_state, received_state):
-        app.logger.warning("OAuth state mismatch. expected=%s received=%s",
-                           repr(expected_state), repr(received_state))
-        flash("Sign-in session expired. Please click Sign in with Google again.", "warning")
+    otp_record = UserLoginOtp.query.filter(UserLoginOtp.user_email == email, UserLoginOtp.used == False, UserLoginOtp.expires_at > datetime.utcnow()).order_by(UserLoginOtp.created_at.desc()).first()
+    if not otp_record:
+        flash("Your sign-in code has expired. Request a new one.", "warning")
         return redirect(url_for("login"))
-
-    code = request.args.get("code")
-    if not code:
-        flash("Google sign-in failed because no authorization code was returned.", "danger")
-        return redirect(url_for("home"))
-
-    try:
-        token_response = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": app.config.get("GOOGLE_CLIENT_ID", "").strip(),
-                "client_secret": app.config.get("GOOGLE_CLIENT_SECRET", "").strip(),
-                "redirect_uri": get_google_redirect_uri(),
-                "grant_type": "authorization_code",
-            },
-            timeout=15,
-        )
-    except requests.RequestException as exc:
-        app.logger.warning("Google token exchange request failed: %s", exc)
-        flash("Google sign-in is temporarily unavailable. Please try again.", "danger")
-        return redirect(url_for("home"))
-
-    try:
-        token_payload = token_response.json()
-    except requests.exceptions.JSONDecodeError:
-        token_payload = {}
-    if token_response.status_code != 200 or "access_token" not in token_payload:
-        app.logger.warning("Google token exchange failed: %s", token_payload)
-        flash("Google sign-in could not be completed right now.", "danger")
-        return redirect(url_for("home"))
-
-    try:
-        user_info_response = requests.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {token_payload['access_token']}"},
-            timeout=15,
-        )
-        user_info = user_info_response.json()
-    except (requests.RequestException, requests.exceptions.JSONDecodeError) as exc:
-        app.logger.warning("Google user-info request failed: %s", exc)
-        flash("Google sign-in is temporarily unavailable. Please try again.", "danger")
-        return redirect(url_for("home"))
-    if user_info_response.status_code != 200 or not user_info.get("email"):
-        flash("Could not retrieve your Google account information.", "danger")
-        return redirect(url_for("home"))
-
-    google_user_id = user_info.get("sub") or user_info.get("id")
-    if not google_user_id:
-        flash("Google account information was incomplete.", "danger")
-        return redirect(url_for("home"))
-
-    user = GoogleUser.query.filter((GoogleUser.google_user_id == google_user_id) | (GoogleUser.email == user_info["email"])).first()
-    is_new_user = user is None
-    if is_new_user:
-        user = GoogleUser(
-            google_user_id=google_user_id,
-            full_name=user_info.get("name") or user_info.get("given_name") or "Google User",
-            email=user_info["email"],
-            profile_picture=user_info.get("picture"),
-        )
-        db.session.add(user)
-    else:
-        user.google_user_id = google_user_id
-        user.full_name = user_info.get("name") or user_info.get("given_name") or user.full_name
-        user.email = user_info["email"]
-        user.profile_picture = user_info.get("picture") or user.profile_picture
-
-    if safe_commit("google user login"):
-        set_user_session(user)
+    if request.method == "POST":
+        entered = request.form.get("otp", "").strip()
+        if not re.fullmatch(r"\d{6}", entered):
+            flash("Enter the six-digit code from your email.", "danger")
+            return render_template("login_verify.html", masked_email=_mask_email(email), attempts_left=5 - otp_record.attempts)
+        otp_record.attempts += 1
+        if otp_record.attempts > 5:
+            otp_record.used = True
+            safe_commit("user login otp lockout")
+            flash("Too many incorrect attempts. Request a new sign-in code.", "danger")
+            return redirect(url_for("login"))
+        entered_hash = hashlib.sha256(entered.encode()).hexdigest()
+        if not secrets.compare_digest(entered_hash, otp_record.otp_hash):
+            safe_commit("user login otp attempt")
+            flash(f"Incorrect code. {5 - otp_record.attempts} attempt(s) remaining.", "danger")
+            return render_template("login_verify.html", masked_email=_mask_email(email), attempts_left=5 - otp_record.attempts)
+        otp_record.used = True
+        user = User.query.filter_by(email=email).first()
+        is_new_user = user is None
         if is_new_user:
-            flash(f"Welcome to FinScore AI, {user.full_name}! Your account has been successfully created.", "success")
+            user = User(full_name=email.split("@", 1)[0], email=email)
+            db.session.add(user)
+        if not safe_commit("user email login"):
+            flash("We could not complete sign-in. Please try again.", "danger")
+            return redirect(url_for("login"))
+        set_user_session(user)
+        session.pop("pending_login_email", None)
+        if is_new_user:
+            flash("Your account has been created and you are now signed in.", "success")
             send_welcome_email(user)
         else:
-            flash(f"Welcome back, {user.full_name}! We are glad to see you again.", "success")
-    else:
-        flash("We could not persist your Google account session. Please try again.", "danger")
-
-    return redirect(url_for("home"))
+            flash("Welcome back. You are now signed in.", "success")
+        return redirect(url_for("home"))
+    return render_template("login_verify.html", masked_email=_mask_email(email), attempts_left=5 - otp_record.attempts)
 
 
 @app.route("/logout")
@@ -1027,13 +1008,6 @@ def logout():
     clear_user_session()
     flash("You have been logged out.", "info")
     return redirect(url_for("home"))
-
-
-@app.route("/login")
-def login():
-    if get_current_user():
-        return redirect(url_for("home"))
-    return render_template("login.html", current_user=None)
 
 
 @app.route("/")
@@ -1064,7 +1038,7 @@ def analyze():
         return jsonify({"error": personal_details_error}), 400
     current_user = get_current_user()
     if not current_user or email.casefold() != current_user.email.casefold():
-        return jsonify({"error": "Use the email address associated with your signed-in Google account."}), 403
+        return jsonify({"error": "Use the email address associated with your signed-in account."}), 403
     if "statement" not in request.files:
         return jsonify({"error": "No file uploaded."}), 400
 
@@ -1604,11 +1578,11 @@ def _owned_report_or_none(report_id, user):
 @login_required
 def request_otp(report_id):
     ensure_database()
-    google_user = get_current_user()
-    if not _owned_report_or_none(report_id, google_user):
+    user = get_current_user()
+    if not _owned_report_or_none(report_id, user):
         flash("That report was not found in your account.", "danger")
         return redirect(url_for("dashboard"))
-    user_email  = google_user.email
+    user_email  = user.email
 
     # Rate-limit: max 3 OTPs per hour per report per user
     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
@@ -1655,11 +1629,11 @@ def request_otp(report_id):
 @login_required
 def verify_otp(report_id):
     ensure_database()
-    google_user = get_current_user()
-    if not _owned_report_or_none(report_id, google_user):
+    user = get_current_user()
+    if not _owned_report_or_none(report_id, user):
         flash("That report was not found in your account.", "danger")
         return redirect(url_for("dashboard"))
-    user_email  = google_user.email
+    user_email  = user.email
 
     # Find the latest unused, unexpired OTP for this user+report
     otp_rec = OtpRecord.query.filter(
@@ -1719,7 +1693,7 @@ def download_report(report_id):
 
     user = get_current_user()
     if not user:
-        flash("Please sign in with Google to continue.", "warning")
+        flash("Please sign in with your email to continue.", "warning")
         return redirect(url_for("login"))
     if not _owned_report_or_none(report_id, user):
         return "Report not found.", 404

@@ -24,13 +24,13 @@
       <span class="badge-customer"><i class="fa-solid fa-user-circle me-1"></i>{{ result.name }}</span>
       <button class="btn btn-sm theme-toggle" id="themeToggle"><i class="fa-solid fa-moon"></i></button>
       {% if current_user %}
-      <span class="badge-customer"><img src="{{ current_user.profile_picture or url_for('static', filename='images/default-avatar.svg') }}" alt="avatar" class="rounded-circle me-2" style="width:24px;height:24px;object-fit:cover;" onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}'" />{{ current_user.full_name }}</span>
+      <span class="badge-customer"><i class="fa-solid fa-user-circle me-1"></i>{{ current_user.full_name }}</span>
       <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light">
         <i class="fa-solid fa-right-from-bracket me-1"></i>Logout
       </a>
       {% else %}
       <a href="/login" class="btn btn-sm btn-outline-light">
-        <i class="fa-brands fa-google me-1"></i>Sign in with Google
+        <i class="fa-solid fa-envelope me-1"></i>Sign in with email
       </a>
       {% endif %}
       {% if session.get('admin_authenticated') %}

@@ -36,43 +36,31 @@ def test_admin_data_routes_are_all_protected():
         assert response.headers['Location'].endswith('/admin/login')
 
 
-def test_home_page_contains_google_sign_in_button():
+def test_existing_admin_prevents_setup_from_running_again():
+    app_module.app.config.update(TESTING=True)
+    with app_module.app.app_context():
+        app_module.ensure_database()
+        app_module.AdminUser.query.delete()
+        app_module.db.session.add(app_module.AdminUser(
+            username='persistent-admin',
+            password_hash=app_module.generate_password_hash('secure-password'),
+            is_active=True,
+        ))
+        app_module.db.session.commit()
+
+    client = app_module.app.test_client()
+    response = client.get('/admin/setup')
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/admin/login')
+
+
+def test_home_page_contains_email_sign_in_button():
     app_module.app.config.update(TESTING=True)
     client = app_module.app.test_client()
 
     response = client.get('/')
     assert response.status_code == 200
-    assert b'Sign in with Google' in response.data
-
-
-def test_google_oauth_settings_are_available_to_auth_routes():
-    assert app_module.app.config.get('GOOGLE_CLIENT_ID') == os.getenv('GOOGLE_CLIENT_ID', '')
-    assert app_module.app.config.get('GOOGLE_CLIENT_SECRET') == os.getenv('GOOGLE_CLIENT_SECRET', '')
-    assert app_module.app.config.get('GOOGLE_REDIRECT_URI') == os.getenv('GOOGLE_REDIRECT_URI', '')
-
-
-def test_google_login_uses_configured_redirect_uri():
-    app_module.app.config.update(
-        TESTING=True,
-        GOOGLE_CLIENT_ID='test-client-id',
-        GOOGLE_CLIENT_SECRET='test-client-secret',
-        GOOGLE_REDIRECT_URI='http://localhost:5000/login/callback',
-    )
-    client = app_module.app.test_client()
-
-    response = client.get('/auth/google')
-
-    assert response.status_code == 302
-    assert 'redirect_uri=http%3A%2F%2Flocalhost%3A5000%2Flogin%2Fcallback' in response.headers['Location']
-
-
-def test_google_callback_route_exists():
-    app_module.app.config.update(TESTING=True)
-    client = app_module.app.test_client()
-
-    response = client.get('/login/callback')
-
-    assert response.status_code == 302
+    assert b'Sign in with email' in response.data
 
 
 def test_personal_details_validation_accepts_supported_formats():
